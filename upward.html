@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UPWARD</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<style>
+html,body,#game{height:100%;margin:0;background:#000;overflow:hidden;color-scheme:dark}
+.px-root{position:fixed;inset:0;display:grid;place-items:center;background:#000;font-family:'Press Start 2P',ui-monospace,monospace;color:#e8f6ff}
+.px-stage{position:relative;width:min(100vw,calc(100vh*16/9));aspect-ratio:16/9;container-type:inline-size;overflow:hidden;background:#000}
+.px-canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+.px-hud{position:absolute;top:1.6cqw;left:2cqw;font-size:1.1cqw;line-height:2.3;color:#fff;text-shadow:.2cqw .2cqw 0 #000;pointer-events:none}
+.px-m{position:absolute;top:1.2cqw;left:0;right:0;text-align:center;font-size:3.4cqw;color:#fff;text-shadow:.3cqw .3cqw 0 #000;pointer-events:none}
+.px-dim{opacity:.7}
+.px-hud-flash{margin-top:1cqw;color:#5dff8a}
+.px-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+.px-panel{display:flex;flex-direction:column;align-items:center;gap:1.4cqw;padding:2.4cqw 3cqw;background:rgba(0,0,0,.84);border:.4cqw solid #8fdcff;box-shadow:.6cqw .6cqw 0 #000;max-width:92%}
+.px-narrow{min-width:34cqw}
+.px-title{font-size:5cqw;letter-spacing:.5cqw;color:#8fdcff;margin:0;text-shadow:.4cqw .4cqw 0 #1b4a66}
+.px-h2{font-size:2.4cqw;margin:0;color:#8fdcff;text-align:center}
+.px-gold{color:#ffd23f}.px-red{color:#ff5d5d}
+.px-sub{font-size:1.1cqw;line-height:1.8;margin:0;text-align:center}
+.px-foot{font-size:.85cqw;line-height:1.6;margin:0;text-align:center}
+.px-slots{display:flex;gap:1.4cqw}
+.px-slot{display:flex;flex-direction:column;gap:.9cqw;width:22cqw;padding:1.4cqw;border:.3cqw solid #3a6a86;background:rgba(20,30,40,.8)}
+.px-slot-name{font-size:1.4cqw;color:#8fdcff}
+.px-slot-info{font-size:.9cqw;line-height:1.6;min-height:1.6em}
+.px-row{display:flex;gap:.8cqw;justify-content:center}
+.px-btn{font-family:inherit;font-size:1.2cqw;color:#000;background:#8fdcff;border:0;padding:1cqw 1.6cqw;cursor:pointer;box-shadow:0 .4cqw 0 #3a7da0}
+.px-btn:hover,.px-btn:focus-visible{background:#c5efff;outline:none}
+.px-btn:active{transform:translateY(.3cqw);box-shadow:0 .1cqw 0 #3a7da0}
+.px-small{font-size:.9cqw;padding:.8cqw 1cqw;background:#4a5c68;color:#e8f6ff;box-shadow:0 .4cqw 0 #222d34}
+.px-small:hover{background:#66808f}
+.px-danger{background:#ff5d5d!important;color:#000}
+.px-binds{display:grid;grid-template-columns:14cqw 11cqw 11cqw;gap:.8cqw;align-items:center}
+.px-bind-label{font-size:1cqw}
+.px-key{font-size:.95cqw;padding:.8cqw .4cqw;background:#22323d;color:#e8f6ff;box-shadow:0 .3cqw 0 #0c1319}
+.px-key:hover{background:#35505f}
+.px-active{background:#ffd23f!important;color:#000}
+.px-field{display:flex;align-items:center;gap:1.2cqw;font-size:1.2cqw}
+.px-input{font:inherit;font-size:1.5cqw;width:8cqw;padding:.7cqw;background:#0c1319;color:#ffd23f;border:.3cqw solid #3a6a86;text-align:center}
+.px-chk{display:flex;align-items:center;gap:1cqw;font-size:1cqw;cursor:pointer}
+.px-chk input{width:1.8cqw;height:1.8cqw;accent-color:#ffd23f;cursor:pointer}
+.px-mb{font-size:1.1cqw;margin-top:.6cqw}.px-bar{position:absolute;right:2cqw;top:7cqw;bottom:5cqw;width:1.2cqw;background:rgba(0,0,0,.55);border:.25cqw solid #fff}.px-bar i{position:absolute;left:0;right:0;bottom:0;background:#ffd23f}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<script>
+// UPWARD: procedurally generated vertical platformer. Plain canvas + DOM.
+const T=16,W=20,VW=320,VH=180,DT=1/60,CPH=250,END=4; // checkpoints every 250 m, summit at END*CPH = 1000 m (1 tile = 1 m)
+// Max gap (tiles) crossable when climbing N rows: jump only / jump + dash.
+// Derived from the physics constants below (jump 72px, air-time, dash ~45px) with ~8% safety margin.
+const GJ=[5,5,4,4,3],GD=[7,7,7,6,6,2,1];
+const lerp=(a,b,t)=>a+(b-a)*t,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function mulberry32(a){return()=>{a|=0;a=(a+0x6d2b79f5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}}
+// Challenge 0..1 from the difficulty setting D (10 = normal) and height h (tiles). Ramps up over the first 350 m.
+function chal(D,h){const g=D<=10?.45+.04*D:.85+.15*Math.pow((D-10)/90,.7);return clamp(g*(.5+.5*Math.min(1,h/250)),.05,1)}
+// tiles: 1 solid, 2 one-way floor, 3 floor spikes, 4 wall spikes (wall on left), 5 wall spikes (wall on right)
+class World{
+constructor(seed,D,endless){this.D=D;this.endless=endless;this.done=false;this.grid=new Map();this.plats=[];this.cps=[];this.nextCp=1;this.dr=-2;this.rng=mulberry32(seed);const b={x0:7,x1:12,row:0,kind:1,idx:0,w:6};this.plats.push(b);this.cps.push(b)}
+raw(x,y){const r=this.grid.get(y);return r&&x>=0&&x<W?r[x]:0}
+tile(x,y){if(y>=0)return x>=5&&x<=14?1:0;return this.raw(x,y)}
+set(x,y,v){if(x<0||x>W-1)return;let r=this.grid.get(y);if(!r){r=new Uint8Array(W);this.grid.set(y,r)}r[x]=v}
+get top(){return this.plats[this.plats.length-1].row}
+ensure(row){while(!this.done&&this.top>row)this.gen()}
+free(x0,x1,ra,rb){for(let y=ra;y<=rb;y++)for(let x=x0;x<=x1;x++)if(this.raw(x,y))return false;return true}
+spot(prev,g,w0,wmin,row){const r=this.rng;for(let w=w0;w>=wmin;w--)for(let gg=g;gg>=1;gg--){const f=r()<.5?1:-1;for(const s of[f,-f]){const x0=s>0?prev.x1+1+gg:prev.x0-gg-w,x1=x0+w-1;if(x0>=0&&x1<=W-1&&(row===undefined||this.free(x0,x1,row-1,row+1)))return{x0,x1,s}}}return null}
+gen(){
+const prev=this.plats[this.plats.length-1],r=this.rng,ri=(a,b)=>a+Math.floor(r()*(b-a+1));
+const c=chal(this.D,-prev.row),rj=lerp(.7,1,c),rd=lerp(.55,1,c);
+const cpRow=-this.nextCp*CPH,rem=prev.row-cpRow;
+const wS=rem>=30&&c>.12?.2+.15*c:0,wT=rem>=14&&c>.3?.1+.12*c:0,wU=rem>=8&&c>.35?.12+.15*c:0,wD=.22+.3*c,q=r();
+if((q<wS&&this.shaft(prev,c,cpRow))||(q>=wS&&q<wS+wT&&this.tunnel(prev,c)))return;
+let dy,g,wmin=Math.round(lerp(3,1,c));
+if(q>=wS+wT&&q<wS+wT+wU){dy=c>.6&&r()<.5?6:5;g=ri(1,GD[dy]);wmin=c>.6?2:3} // dash-up climb
+else{
+dy=ri(r()<.2?0:1,c<.4?3:4);g=ri(1,Math.max(1,Math.round(rj*GJ[dy])));
+if(q>=wS+wT+wU&&q<wS+wT+wU+wD){const ex=Math.round((GD[dy]-GJ[dy])*rd);if(ex>=1){g=GJ[dy]+ri(1,ex);wmin=c>.6?2:3}} // gap that needs a dash
+}
+let row=prev.row-dy,kind=0,idx=0;
+if(row<=cpRow){row=cpRow;kind=this.nextCp===END?2:1;idx=this.nextCp++;dy=prev.row-row;g=Math.min(g,GJ[Math.min(dy,4)])}
+const w0=kind===2?10:kind?8:ri(wmin,Math.max(wmin,Math.round(lerp(5,2,c))));
+const sp=this.spot(prev,g,w0,kind?4:wmin,row)||this.spot(prev,1,2,1,row)||{x0:prev.x0,x1:Math.min(W-1,prev.x0+1),s:1};
+const p={x0:sp.x0,x1:sp.x1,row,kind,idx,w:sp.x1-sp.x0+1};
+this.build(p,c,sp.s);this.plats.push(p);
+if(kind){this.cps[idx]=p;if(kind===2&&!this.endless)this.done=true}
+}
+// Platform body (thin one-way or solid block) plus top / underside / far-face spikes. The side you arrive from is never trapped.
+build(p,c,s){
+const r=this.rng,ri=(a,b)=>a+Math.floor(r()*(b-a+1)),{x0,x1,row}=p;let bh=0;
+if(!p.kind&&r()<(c>.3?.1+.3*c:0)){const h=ri(2,3);if(this.free(x0-1,x1+1,row-1,row+h+1))bh=h}
+for(let x=x0;x<=x1;x++){if(bh)for(let y=0;y<bh;y++)this.set(x,row+y,1);else this.set(x,row,2)}
+if(p.kind)return;
+const ub=row+(bh||1),lo=Math.max(x0,s>0?x0+2:x0),hi=Math.min(x1,s>0?x1:x1-2);
+if(p.w>=3&&r()<.1+.45*c&&this.free(lo,hi,ub,ub))for(let x=lo;x<=hi;x++)this.set(x,ub,6);
+if(bh){const fx=s>0?x1+1:x0-1;if(fx>=0&&fx<=W-1)for(let y=0;y<bh;y++)if(r()<.3+.6*c&&!this.raw(fx,row+y))this.set(fx,row+y,s>0?4:5)}
+const e=c>.6?1:2;
+if(p.w>=2*e+1&&r()<.3+.6*c){const n=ri(1,Math.max(1,Math.min(p.w-2*e,1+Math.round(3*c)))),sx=x0+e+ri(0,p.w-2*e-n);
+if(!this.plats.slice(-4).some(q=>Math.abs(q.row-row)<8&&q.x0<=sx+n-1&&q.x1>=sx))for(let x=sx;x<sx+n;x++)this.set(x,row-1,3)}
+}
+// Wall-jump shaft: floor, two tall pillars, spike bands alternating between the faces (never at the same height).
+shaft(prev,c,cpRow){
+const r=this.rng,ri=(a,b)=>a+Math.floor(r()*(b-a+1));
+const sw=ri(2,c>.5?4:3),fw=sw+2,dy=ri(1,2),g=ri(1,Math.max(1,Math.round(lerp(.7,1,c)*GJ[dy]))),fr=prev.row-dy;
+let H=ri(8,Math.round(lerp(14,26,c)));H=Math.min(H,fr-cpRow-1);if(H<7)return false;
+const sp=this.spot(prev,g,fw,fw);if(!sp)return false;
+const tr=fr-H,pb=fr-3,sx=sp.x0+1,ex=sx+sw-1,pwL=ri(1,2),pwR=ri(1,2);
+const L=[Math.max(0,sx-pwL),sx-1],R=[ex+1,Math.min(W-1,ex+pwR)];
+if(!this.free(L[0],R[1],tr-1,fr+1))return false;
+for(let y=tr;y<=pb;y++){for(let x=L[0];x<=L[1];x++)this.set(x,y,1);for(let x=R[0];x<=R[1];x++)this.set(x,y,1)}
+for(let x=sp.x0;x<=sp.x1;x++)this.set(x,fr,2);
+let side=r()<.5?0:1,y=pb-ri(3,5);const pr=clamp(c*1.2+.2,0,.97);
+while(y>tr+7){const bh=1+(r()<c*.7?1:0);if(r()<pr)for(let k=0;k<bh;k++)this.set(side?ex:sx,y-k,side?5:4);side^=1;y-=bh+ri(4,6)}
+const wl=L[1]-L[0]+1,wr=R[1]-R[0]+1,E=wl>wr?L:wr>wl?R:(r()<.5?L:R);
+this.plats.push({x0:sp.x0,x1:sp.x1,row:fr,kind:0,idx:0,w:fw},{x0:E[0],x1:E[1],row:tr,kind:0,idx:0,w:E[1]-E[0]+1});
+return true}
+// Spiked-ceiling tunnel: tiny same-level platforms under a slab whose underside is all spikes. Full jumps die, so you tap short hops (dash for the wide gaps).
+tunnel(prev,c){
+const r=this.rng,ri=(a,b)=>a+Math.floor(r()*(b-a+1));
+const dy=ri(0,1),R=prev.row-dy,g=ri(1,Math.max(1,Math.round(lerp(.7,1,c)*GJ[dy]))),sp=this.spot(prev,g,2,2,R);if(!sp)return false;
+const s=sp.s,n=ri(3,c>.6?5:4),wI=c>.6?1:2,P=[{x0:sp.x0,x1:sp.x1}];
+for(let i=1;i<n;i++){const l=P[i-1],w=i===n-1?2:wI,gap=ri(2,c>.5?3:2)+(c>.75&&r()<.5?ri(1,2):0),x0=s>0?l.x1+1+gap:l.x0-gap-w;P.push({x0,x1:x0+w-1})}
+const lo=Math.min(...P.map(q=>q.x0)),hi=Math.max(...P.map(q=>q.x1));
+if(lo<0||hi>W-1||!this.free(lo,hi,R-6,R+1))return false;
+const A=s>0?P[0].x1+1:P[n-1].x1+1,B=s>0?P[n-1].x0-1:P[0].x0-1;
+for(const q of P)for(let x=q.x0;x<=q.x1;x++)this.set(x,R,2);
+for(let x=A;x<=B;x++){this.set(x,R-5,1);this.set(x,R-4,6)}
+for(const q of P)this.plats.push({x0:q.x0,x1:q.x1,row:R,kind:0,idx:0,w:q.x1-q.x0+1});
+return true}
+deco(){}
+}
+const ACTIONS=[{id:'left',label:'MOVE LEFT'},{id:'right',label:'MOVE RIGHT'},{id:'up',label:'AIM UP'},{id:'down',label:'AIM DOWN'},{id:'jump',label:'JUMP'},{id:'dash',label:'DASH'},{id:'pause',label:'PAUSE'}];
+const DEFAULT_BINDS={left:['KeyA','ArrowLeft'],right:['KeyD','ArrowRight'],up:['KeyW','ArrowUp'],down:['KeyS','ArrowDown'],jump:['Space','KeyK'],dash:['KeyE','KeyJ'],pause:['Escape','KeyP']};
+const BIND_KEY='pixelclimb.binds.v2',SLOT_KEY='pixelclimb.slots.v2';
+function loadBinds(){const o=JSON.parse(JSON.stringify(DEFAULT_BINDS));try{const s=JSON.parse(localStorage.getItem(BIND_KEY)||'null');if(s)for(const a of ACTIONS)if(Array.isArray(s[a.id]))o[a.id]=[s[a.id][0]??'',s[a.id][1]??'']}catch{}return o}
+function keyName(c){if(!c)return'---';const m={Space:'SPACE',ShiftLeft:'L-SHIFT',ShiftRight:'R-SHIFT',ControlLeft:'L-CTRL',ControlRight:'R-CTRL',AltLeft:'L-ALT',AltRight:'R-ALT',Escape:'ESC',ArrowLeft:'LEFT',ArrowRight:'RIGHT',ArrowUp:'UP',ArrowDown:'DOWN',Enter:'ENTER',Backspace:'BKSP',Tab:'TAB'};return m[c]??c.replace(/^Key|^Digit/,'').replace(/^Numpad/,'NUM ').toUpperCase()}
+// A hardcore run that was left without finishing (closed tab, reload) counts as dead.
+function loadSlots(){try{const s=JSON.parse(localStorage.getItem(SLOT_KEY)||'null');if(Array.isArray(s)&&s.length===3){let ch=0;s.forEach(x=>{if(x&&x.hc&&x.live){x.dead=true;x.live=false;ch=1}});if(ch)saveSlots(s);return s}}catch{}return[null,null,null]}
+const saveSlots=s=>{try{localStorage.setItem(SLOT_KEY,JSON.stringify(s))}catch{}};
+const fmtTime=ms=>{const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return(h?h+':'+String(m).padStart(2,'0'):String(m))+':'+String(ss).padStart(2,'0')};
+// physics (px, seconds)
+const RUN=115,GRAV=900,JUMP=360,MAXFALL=380,WSL=70,WJX=170,WJY=340,DASH_SPEED=320,DASH_TIME=.14,PS=10;
+function startGame(root){
+root.innerHTML='';root.classList.add('px-root');
+const stage=el('div','px-stage'),canvas=document.createElement('canvas');
+canvas.width=VW;canvas.height=VH;canvas.className='px-canvas';
+const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;
+const hud=el('div','px-hud'),mEl=el('div','px-m'),bar=el('div','px-bar'),fill=el('i'),overlay=el('div','px-overlay');bar.append(fill);
+hud.style.display=mEl.style.display=bar.style.display='none';
+stage.append(canvas,hud,mEl,bar,overlay);root.append(stage);
+let binds=loadBinds(),slots=loadSlots(),slotIdx=-1,slot=null,world=new World(1,10,false),state='menu',capturing=null,controlsReturn=()=>showMenu();
+const held=new Set(),isHeld=a=>binds[a].some(c=>c&&held.has(c)),matches=(a,c)=>binds[a].includes(c);
+const p={x:0,y:0,vx:0,vy:0,onGround:false,wall:0,wallT:0,wallDir:0,face:1,coyote:0,jbuf:0,dbuf:0,lock:0,dashT:0,dashCd:0,canDash:true,jumping:false,lastWallJump:0,dead:0,gone:false,peak:0,dm:0};
+let camY=-150,sessionMs=0,lastSave=0,hudTimer=0,flashText='',flashT=0,fxT=0;const fx=[];
+const meters=()=>Math.max(0,Math.floor(-(p.y+PS)/T+.001));
+function boxTiles(x,y,w,h,fn){const x0=Math.floor(x/T),x1=Math.floor((x+w-.001)/T),y0=Math.floor(y/T),y1=Math.floor((y+h-.001)/T);for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++)if(fn(tx,ty,world.tile(tx,ty)))return}
+const solidAt=(x,y)=>{let hit=false;boxTiles(x,y,PS,PS,(_a,_b,t)=>(hit=hit||t===1));return hit};
+function spawn(){const cp=world.cps[slot.cp];world.ensure(cp.row-30);p.x=((cp.x0+cp.x1+1)/2)*T-PS/2;p.y=cp.row*T-PS;p.vx=p.vy=0;p.canDash=true;p.dashT=0;p.lastWallJump=0;p.wallT=0;p.jumping=false;p.dead=0;p.gone=false;p.peak=p.y;camY=Math.min(p.y-120,-150)}
+function die(){if(p.dead>0)return;p.dead=.35;slot.deaths++;p.dm=meters();puff(24,p.x+5,p.y+5,100,'#8fdcff',1.5);flash('DIED AT '+p.dm+'m  ·  BEST '+slot.best+'m');if(slot.hc){slot.dead=true;slot.live=false;persist()}}
+function persist(){if(slot&&slotIdx>=0){slot.ms+=sessionMs;sessionMs=0;slots[slotIdx]=slot;saveSlots(slots)}}
+const approach=(v,t,a)=>v<t?Math.min(v+a,t):Math.max(v-a,t);
+function flash(s){flashText=s;flashT=2.5}
+function burst(c){if(fx.length>400)return;const cx=((c.x0+c.x1+1)/2)*T+(Math.random()-.5)*150,cy=c.row*T-40-Math.random()*80,col=['#ffd23f','#ff6b9d','#5dff8a','#fff','#8fdcff'][Math.floor(Math.random()*5)];
+for(let i=0;i<28;i++){const a=i/28*Math.PI*2,s=35+Math.random()*30;fx.push({x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1,col})}}
+function puff(n,x,y,sp,col,d){for(let i=0;i<n&&fx.length<500;i++){const a=Math.random()*Math.PI*2,v=Math.random()*sp;fx.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:1,col,d})}}
+function stepFx(){for(let i=fx.length-1;i>=0;i--){const f=fx[i];f.x+=f.vx*DT;f.y+=f.vy*DT;f.vy+=60*DT;f.l-=DT*(f.d||.8);if(f.l<=0)fx.splice(i,1)}
+const sm=world.cps[END];if(sm&&p.y<sm.row*T+60*T&&(fxT-=DT)<=0){fxT=.4;burst(sm)}}
+function update(){
+world.ensure(Math.floor(camY/T)-24);
+if(p.dead>0){p.dead-=DT;if(p.dead<=0){if(slot.hc){p.gone=true;state='over';showOver()}else spawn()}return}
+sessionMs+=DT*1000;
+const dir=(isHeld('right')?1:0)-(isHeld('left')?1:0);if(dir)p.face=dir;
+p.jbuf-=DT;p.dbuf-=DT;p.lock-=DT;p.dashT-=DT;p.dashCd-=DT;p.wallT-=DT;
+p.coyote=p.onGround?.09:p.coyote-DT;
+if(p.dbuf>0&&p.canDash&&p.dashCd<=0&&p.dashT<=0){let dx=dir,dy=(isHeld('down')?1:0)-(isHeld('up')?1:0);if(!dx&&!dy)dx=p.face;const len=Math.hypot(dx,dy);p.vx=dx/len*DASH_SPEED;p.vy=dy/len*DASH_SPEED;p.dashT=DASH_TIME;p.dashCd=.2;p.canDash=false;p.dbuf=0;p.jumping=false;puff(8,p.x+5,p.y+5,60,'#cfeeff',3)}
+if(p.dashT>0){puff(2,p.x+5,p.y+5,8,'#cfeeff',4);if(p.dashT-DT<=0){p.vx*=.5;p.vy*=.35}}
+else{
+if(p.lock<=0)p.vx=approach(p.vx,dir*RUN,p.onGround?1600:1100);
+p.vy=Math.min(p.vy+GRAV*DT,MAXFALL);
+// wall slide: hold toward a wall to grip it
+if(!p.onGround&&p.wall&&dir===p.wall&&p.vy>WSL){p.vy=WSL;if(Math.random()<.3)puff(1,p.x+(p.wall<0?0:PS),p.y+PS,15,'#ffd23f',3)}
+if(p.jbuf>0){
+if(p.coyote>0){p.vy=-JUMP;p.jbuf=0;p.coyote=0;p.jumping=true;p.onGround=false;puff(5,p.x+5,p.y+PS,45,'#fff',3.5)}
+// wall jump: works with a short grace window, any input direction, alternate walls only
+else if(p.wallT>0&&p.wallDir!==p.lastWallJump){const d=p.wallDir;p.vx=-d*WJX;p.vy=-WJY;p.face=-d;p.lastWallJump=d;p.lock=.13;p.jbuf=0;p.jumping=true;p.wallT=0;puff(6,p.x+(d<0?0:PS),p.y+5,50,'#fff',3.5)}
+}
+if(p.jumping){if(p.vy>=0)p.jumping=false;else if(!isHeld('jump')&&p.vy<-JUMP*.45)p.vy=-JUMP*.45}
+}
+p.x+=p.vx*DT;
+if(solidAt(p.x,p.y)){if(p.vx>0)p.x=Math.floor((p.x+PS-.001)/T)*T-PS;else p.x=(Math.floor(p.x/T)+1)*T;p.vx=0}
+
+const prevBottom=p.y+PS;p.y+=p.vy*DT;
+if(p.vy>=0){let land=-Infinity;boxTiles(p.x,p.y,PS,PS,(_x,ty,t)=>{if(t===1||(t===2&&prevBottom<=ty*T+.01))land=Math.max(land,ty*T-PS)});if(land>-Infinity){p.y=land;p.vy=0}}
+else if(solidAt(p.x,p.y)){p.y=(Math.floor(p.y/T)+1)*T;p.vy=0}
+let ground=false;
+if(p.vy>=0){const bottom=p.y+PS;boxTiles(p.x,p.y+1,PS,PS,(_x,ty,t)=>{if(t===1||(t===2&&bottom<=ty*T+.01))ground=true})}
+p.onGround=ground;
+p.wall=solidAt(p.x-1,p.y)?-1:solidAt(p.x+1,p.y)?1:0;
+if(p.wall){p.wallT=.12;p.wallDir=p.wall}
+if(ground){p.canDash=true;p.lastWallJump=0}
+// hazards: hitboxes cover the whole tile width (floor spikes) or hug the wall (wall spikes), so no edge can dodge them
+let hurt=false;
+boxTiles(p.x,p.y,PS,PS,(tx,ty,t)=>{if(t<3)return;const X=tx*T,Y=ty*T;let a,b,c,d;
+if(t===3){a=X;b=X+T;c=Y+7;d=Y+T}else if(t===6){a=X;b=X+T;c=Y;d=Y+9}else if(t===4){a=X;b=X+9;c=Y;d=Y+T}else{a=X+7;b=X+T;c=Y;d=Y+T}
+if(p.x<b&&p.x+PS>a&&p.y<d&&p.y+PS>c)hurt=true});
+const cpRow=world.cps[slot.cp].row;
+if(ground&&p.y<p.peak)p.peak=p.y;
+if(hurt||p.y>p.peak+9*T||p.x<-12||p.x>W*T+2)die();
+// progress
+const m=meters();if(ground&&m>slot.best){const ob=slot.best;slot.best=m;if(ob>0&&Math.floor(m/50)>Math.floor(ob/50)){flash('NEW BEST '+m+'m');puff(26,p.x+5,p.y+5,110,'#ffd23f',1.2)}}
+const on=c=>c&&p.y+PS>=c.row*T-4&&p.y+PS<=c.row*T+2&&p.x+PS>c.x0*T&&p.x<(c.x1+1)*T;
+if(!slot.hc){const n=world.cps[slot.cp+1];if(on(n)){slot.cp=n.idx;persist();flash('CHECKPOINT '+n.idx)}}
+const sm=world.cps[END];
+if(!slot.won&&on(sm)){slot.won=true;slot.best=Math.max(slot.best,END*CPH);
+if(slot.endless){slot.cp=Math.max(slot.cp,END);persist();flash('1000M! THE SUMMIT - KEEP GOING')}
+else{slot.completed=true;slot.live=false;persist();state='ending';showEnding()}}
+camY+=(Math.min(p.y+PS/2-105,-150)-camY)*.12;
+}
+// ---- render
+const bg=(h,s,l)=>`hsl(${h%360} ${s}% ${l}%)`;
+function hash(a,b){let h=Math.imul(a,374761393)^Math.imul(b,668265263);h=Math.imul(h^(h>>>13),1274126177);return(h^(h>>>16))>>>0}
+function drawSpike(x,y){for(let s=0;s<2;s++){const cx=x+s*8+4;for(let k=0;k<8;k++){const w=2+Math.floor(k/2)*2,yy=y+8+k;ctx.fillStyle='rgba(255,255,255,.4)';ctx.fillRect(cx-w/2-1,yy,w+2,1);ctx.fillStyle='#e63946';ctx.fillRect(cx-w/2,yy,w,1)}}}
+function drawWS(x,y,left){for(let s=0;s<2;s++)for(let k=0;k<8;k++){const w=8-Math.floor(k/2)*2,xx=left?x+k:x+T-1-k,yy=y+s*8+(8-w)/2;ctx.fillStyle='rgba(255,255,255,.4)';ctx.fillRect(xx,yy-1,1,w+2);ctx.fillStyle='#e63946';ctx.fillRect(xx,yy,1,w)}}
+function drawSD(x,y){for(let s=0;s<2;s++){const cx=x+s*8+4;for(let k=0;k<8;k++){const w=8-Math.floor(k/2)*2,yy=y+k;ctx.fillStyle='rgba(255,255,255,.4)';ctx.fillRect(cx-w/2-1,yy,w+2,1);ctx.fillStyle='#e63946';ctx.fillRect(cx-w/2,yy,w,1)}}}
+function render(menu){
+const cy=Math.round(camY),tm=performance.now()/1000;
+const h=menu?tm*6:Math.max(0,-(camY+VH/2)/T),s=clamp((h-850)/150,0,1);
+const hue=h<850?205+h/850*70:275+s*85,light=46+4*Math.sin(h/60)+s*14;
+ctx.fillStyle=bg(hue,55,light);ctx.fillRect(0,0,VW,VH);
+ctx.fillStyle=bg(hue+12,55,light+10);
+const pcy=Math.floor(cy*.35);
+for(let gy=Math.floor(pcy/24)-1;gy<=Math.floor((pcy+VH)/24)+1;gy++)for(let gx=0;gx<10;gx++){const hh=hash(gx,gy);if(hh%3!==0)continue;const sz=2+(hh%3)*2;ctx.fillRect(gx*32+(hh%24),gy*24+((hh>>>8)%18)-pcy,sz,sz)}
+if(menu)return;
+const sm=world.cps[END],sx=sm?Math.floor(((sm.x0+sm.x1+1)/2)*T):0,sy=sm?sm.row*T-cy:0;
+if(sm){ctx.fillStyle=`rgba(255,240,160,${.2+.05*Math.sin(tm*3)})`;ctx.fillRect(sx-16,0,32,Math.max(0,sy));ctx.fillStyle='rgba(255,255,255,.3)';ctx.fillRect(sx-6,0,12,Math.max(0,sy))}
+const r0=Math.floor(cy/T),r1=Math.floor((cy+VH)/T);
+for(let ty=r0;ty<=r1;ty++){const y=ty*T-cy;for(let tx=0;tx<W;tx++){const t=world.tile(tx,ty),x=tx*T;
+if(t===1){ctx.fillStyle='#000';ctx.fillRect(x,y,T,T);ctx.fillStyle='rgba(255,255,255,.3)';const E=(a,b)=>world.tile(tx+a,ty+b)!==1;
+if(E(0,-1))ctx.fillRect(x,y,T,1);if(E(-1,0))ctx.fillRect(x,y,1,T);if(E(1,0))ctx.fillRect(x+T-1,y,1,T);
+ctx.fillStyle='#0d0d0d';ctx.fillRect(x+3+((tx*5+ty*3)%6),y+3+((tx*7+ty)%8),2,2)}
+else if(t===2){ctx.fillStyle='#1d2b53';ctx.fillRect(x,y,T,T);ctx.fillStyle='rgba(255,255,255,.55)';ctx.fillRect(x,y,T,1);ctx.fillStyle='#2c3e7a';ctx.fillRect(x+4,y+6,2,2);ctx.fillRect(x+11,y+9,2,2)}
+else if(t===3)drawSpike(x,y);else if(t===4)drawWS(x,y,true);else if(t===5)drawWS(x,y,false);else if(t===6)drawSD(x,y)}}
+if(!slot.hc)for(let i=1;i<world.cps.length;i++){const c=world.cps[i];if(!c||c.kind===2||c.row*T-cy<-40||c.row*T-cy>VH+20)continue;
+const fx0=Math.floor(((c.x0+c.x1+1)/2)*T),fy=c.row*T-cy;ctx.fillStyle='#d8d8d8';ctx.fillRect(fx0,fy-16,2,16);ctx.fillStyle=slot.cp>=c.idx?'#5dff8a':'#ff9f43';ctx.fillRect(fx0+2,fy-16,8,6)}
+if(sm&&sy>-60&&sy<VH+30){ctx.fillStyle='#ffd23f';ctx.fillRect(sx-7,sy-14,14,8);ctx.fillRect(sx-2,sy-6,4,4);ctx.fillRect(sx-6,sy-2,12,2);ctx.fillRect(sx-10,sy-13,3,5);ctx.fillRect(sx+7,sy-13,3,5);ctx.fillStyle='#fff';ctx.fillRect(sx-5,sy-13,2,4);
+const z=2+Math.floor((Math.sin(tm*4)+1)*1.5);ctx.fillRect(sx-z,sy-26,z*2,2);ctx.fillRect(sx-1,sy-26-z,2,z*2)}
+for(const f of fx){ctx.globalAlpha=Math.max(0,f.l);ctx.fillStyle=f.col;ctx.fillRect(Math.round(f.x),Math.round(f.y)-cy,2,2)}ctx.globalAlpha=1;
+if(p.dead<=0&&!p.gone){const st=Math.round(clamp(Math.abs(p.vy)/380,0,1)*3),bw=PS-st,bh=PS+st,bx=Math.round(p.x)+(PS-bw)/2,by=Math.round(p.y)-cy+PS-bh;ctx.fillStyle='#000';ctx.fillRect(bx-1,by-1,bw+2,bh+2);ctx.fillStyle=p.canDash?'#8fdcff':'#ff8fb0';ctx.fillRect(bx,by,bw,bh);ctx.fillStyle='#000';ctx.fillRect(bx+(p.face>0?bw-4:2),by+2,2,3)}
+else if(p.dead>0){ctx.fillStyle='#8fdcff';const k=(.35-p.dead)*120;for(let i=0;i<8;i++){const a=i/8*Math.PI*2;ctx.fillRect(Math.round(p.x+4+Math.cos(a)*k),Math.round(p.y+4+Math.sin(a)*k)-cy,2,2)}}
+}
+function updateHud(){
+mEl.innerHTML='';const mm=meters();mEl.append(el('div','',mm+'m'),el('div','px-mb','BEST '+slot.best+'m  ·  THREAT '+Math.round(chal(slot.d,mm)*100)+'%'));fill.style.height=clamp(mm/10,0,100)+'%';
+hud.innerHTML='';
+hud.append(el('div','',`${slot.hc?'HARDCORE':'CHECKPOINT '+slot.cp}  ·  DIFF ${slot.d}${slot.endless?'  ·  ENDLESS':''}`),el('div','px-dim',`DEATHS ${slot.deaths}  ·  TIME ${fmtTime(slot.ms+sessionMs)}  ·  BEST ${slot.best}m`));
+if(flashT>0)hud.append(el('div','px-hud-flash',flashText))}
+// ---- UI
+function el(tag,cls='',text='',onclick){const e=document.createElement(tag);if(cls)e.className=cls;if(text)e.textContent=text;if(onclick)e.addEventListener('click',onclick);return e}
+function btn(text,onclick,cls=''){const b=el('button','px-btn '+cls,text,onclick);b.type='button';return b}
+function chk(t){const l=el('label','px-chk'),i=document.createElement('input');i.type='checkbox';l.append(i,el('span','',t));return[l,i]}
+function setOverlay(...n){overlay.innerHTML='';overlay.style.display=n.length?'flex':'none';overlay.append(...n)}
+function showMenu(){
+state='menu';hud.style.display=mEl.style.display=bar.style.display='none';slots=loadSlots();
+const wrap=el('div','px-panel');wrap.append(el('h1','px-title','UPWARD'),el('p','px-sub','NO WALLS. NO NET. 1000M.  E = DASH'));
+const list=el('div','px-slots');
+slots.forEach((s,i)=>{const card=el('div','px-slot');card.append(el('div','px-slot-name','SLOT '+(i+1)));
+if(!s){card.append(el('div','px-slot-info px-dim','EMPTY'),btn('NEW GAME',()=>showNew(i)))}
+else{const over=s.dead||(s.completed&&!s.endless);
+card.append(el('div','px-slot-info'+(s.dead?' px-red':''),s.dead?'DEAD':s.completed&&!s.endless?'CLEARED':s.hc?'NO CHECKPOINTS':'CHECKPOINT '+s.cp),
+el('div','px-slot-info px-dim',`DIFF ${s.d}${s.hc?' · HARDCORE':''}${s.endless?' · ENDLESS':''}`),
+el('div','px-slot-info px-dim',`BEST ${s.best}m  ·  ${s.deaths} DEATHS`),el('div','px-slot-info px-dim',fmtTime(s.ms)));
+const row=el('div','px-row');if(!over)row.append(btn('CONTINUE',()=>startSlot(i)));
+let armed=false;const del=btn('ERASE',()=>{if(!armed){armed=true;del.textContent='SURE?';del.classList.add('px-danger');setTimeout(()=>{armed=false;del.textContent='ERASE';del.classList.remove('px-danger')},2000);return}slots[i]=null;saveSlots(slots);showMenu()},'px-small');
+row.append(del);card.append(row)}
+list.append(card)});
+wrap.append(list,btn('CONTROLS',()=>showControls(()=>showMenu())),el('p','px-foot px-dim','CHECKPOINTS AT 250M, 500M, 750M  ·  R = NEW RUN'));
+setOverlay(wrap)}
+function showNew(i){
+const w=el('div','px-panel px-narrow');w.append(el('h2','px-h2','NEW GAME  ·  SLOT '+(i+1)));
+const f=el('label','px-field');f.append(el('span','','DIFFICULTY'));
+const inp=document.createElement('input');inp.type='number';inp.min=1;inp.max=100;inp.value=10;inp.className='px-input';f.append(inp);
+const ds=el('p','px-sub px-gold'),val=()=>clamp(Math.round(+inp.value)||10,1,100);
+const upd=()=>{const v=val();ds.textContent=v<10?'HARD':v===10?'BRUTAL':v<30?'NIGHTMARE':v<60?'INSANE':v<100?'SUICIDAL':'HUNDREDS OF HOURS OF PRACTICE'};
+inp.addEventListener('input',upd);upd();
+const[hl,hb]=chk('HARDCORE  (NO CHECKPOINTS, ONE LIFE)'),[nl,nb]=chk('ENDLESS  (CONTINUE PAST 1000M)');
+w.append(f,ds,el('p','px-foot px-dim','1 = HARD  ·  10 = BRUTAL  ·  100 = MAX'),hl,nl,el('p','px-foot px-dim','HARDCORE: DYING OR LEAVING THE RUN LOCKS THE SAVE'));
+const row=el('div','px-row');row.append(btn('START',()=>startSlot(i,{d:val(),hc:hb.checked,endless:nb.checked})),btn('BACK',()=>showMenu(),'px-small'));
+w.append(row);setOverlay(w)}
+function showControls(back){
+controlsReturn=back;const wrap=el('div','px-panel');
+wrap.append(el('h2','px-h2','CONTROLS'),el('p','px-sub',capturing?'PRESS A KEY  (ESC TO CANCEL)':'CLICK A KEY TO REBIND'));
+const grid=el('div','px-binds');
+for(const a of ACTIONS){grid.append(el('div','px-bind-label',a.label));for(let i=0;i<2;i++){const active=capturing&&capturing.a===a.id&&capturing.i===i;
+grid.append(btn(active?'...':keyName(binds[a.id][i]),()=>{capturing=active?null:{a:a.id,i};showControls(back)},'px-key'+(active?' px-active':'')))}}
+wrap.append(grid);const row=el('div','px-row');
+row.append(btn('RESET',()=>{binds=JSON.parse(JSON.stringify(DEFAULT_BINDS));capturing=null;saveBinds();showControls(back)},'px-small'),btn('BACK',()=>{capturing=null;back()}));
+wrap.append(row);setOverlay(wrap)}
+const saveBinds=()=>{try{localStorage.setItem(BIND_KEY,JSON.stringify(binds))}catch{}};
+function showPause(){state='pause';persist();const w=el('div','px-panel px-narrow');
+w.append(el('h2','px-h2','PAUSED'),btn('RESUME',resume),btn('CONTROLS',()=>showControls(showPause)),...(slot.hc?[]:[btn('NEW RUN (R)',()=>{restart();resume()})]),
+slot.hc?btn('FORFEIT RUN',()=>{slot.dead=true;slot.live=false;persist();showMenu()},'px-danger'):btn('SAVE & QUIT',()=>{persist();showMenu()}));
+setOverlay(w)}
+function resume(){state='play';setOverlay()}
+function restart(){slot.seed=(Math.random()*2**31)|0;slot.cp=0;slot.won=false;world=new World(slot.seed,slot.d,slot.endless);fx.length=0;spawn();persist();flash('NEW LAYOUT')}
+function showEnding(){persist();const w=el('div','px-panel px-narrow');
+w.append(el('h2','px-h2 px-gold','YOU REACHED THE SUMMIT'),el('p','px-sub',`1000M  ·  TIME ${fmtTime(slot.ms)}  ·  ${slot.deaths} DEATHS`),el('p','px-sub px-dim',slot.hc?'HARDCORE CLEARED':`DIFFICULTY ${slot.d} CLEARED`),btn('MAIN MENU',()=>showMenu()));
+setOverlay(w)}
+function showOver(){const w=el('div','px-panel px-narrow');
+w.append(el('h2','px-h2 px-red','YOU DIED'),el('p','px-sub',`DIED AT ${p.dm}m  ·  BEST ${slot.best}m  ·  TIME ${fmtTime(slot.ms)}`),el('p','px-sub px-dim','HARDCORE RUN OVER. THIS SAVE IS LOCKED.'),btn('MAIN MENU',()=>showMenu()));
+setOverlay(w)}
+function startSlot(i,o){
+slotIdx=i;
+if(o){slots[i]={seed:(Math.random()*2**31)|0,cp:0,best:0,deaths:0,ms:0,completed:false,won:false,dead:false,live:o.hc,d:o.d,hc:o.hc,endless:o.endless};saveSlots(slots)}
+slot=slots[i];world=new World(slot.seed,slot.d,slot.endless);sessionMs=0;held.clear();fx.length=0;spawn();
+hud.style.display=mEl.style.display=bar.style.display='block';state='play';setOverlay()}
+// ---- events
+function onKeyDown(e){
+if(capturing){e.preventDefault();if(e.code!=='Escape'){const{a,i}=capturing;for(const x of ACTIONS)binds[x.id]=binds[x.id].map(c=>c===e.code?'':c);binds[a][i]=e.code;saveBinds()}capturing=null;showControls(controlsReturn);return}
+if(state==='play'||state==='pause'){if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault()}
+if(e.repeat)return;held.add(e.code);
+if(state==='play'){if(e.code==='KeyR'&&!slot.hc){restart();return}if(matches('jump',e.code))p.jbuf=.11;if(matches('dash',e.code))p.dbuf=.11;if(matches('pause',e.code))showPause()}
+else if(state==='pause'&&matches('pause',e.code))resume()}
+const onKeyUp=e=>held.delete(e.code);
+function onBlur(){held.clear();if(state==='play')showPause()}
+window.addEventListener('keydown',onKeyDown);window.addEventListener('keyup',onKeyUp);window.addEventListener('blur',onBlur);
+// ---- loop
+let raf=0,last=performance.now(),acc=0;
+function frame(now){
+raf=requestAnimationFrame(frame);acc+=Math.min(.1,(now-last)/1000);last=now;
+if(state==='play'){while(acc>=DT){update();acc-=DT}flashT-=1/60;if((hudTimer-=1/60)<=0){hudTimer=.1;updateHud()}if(now-lastSave>15000){lastSave=now;persist()}}else acc=0;
+if(state==='play'||state==='ending'||state==='over')stepFx();
+render(state==='menu')}
+showMenu();raf=requestAnimationFrame(frame);
+return()=>{cancelAnimationFrame(raf);window.removeEventListener('keydown',onKeyDown);window.removeEventListener('keyup',onKeyUp);window.removeEventListener('blur',onBlur);persist();root.innerHTML=''}
+}
+startGame(document.getElementById('game'))
+</script>
+</body>
+</html>
